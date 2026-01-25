@@ -17,6 +17,10 @@ Perfect for:
 - Professionals wanting a quick personal site
 - Anyone who wants a deployable portfolio without coding
 
+[![Watch the video](https://img.youtube.com/vi/AAwnEYtBwo4/maxresdefault.jpg)](https://youtu.be/AAwnEYtBwo4)
+
+### [Watch Demo on YouTube](https://youtu.be/AAwnEYtBwo4)
+
 ## ✨ Key Features
 
 ### Core Capabilities
