@@ -9,7 +9,13 @@ const projectRoutes = require('./routers/projectRoutes');
 require('./config/passport');
 const authRoutes = require('./routers/auth');
 const session = require('express-session');
-require('dotenv').config(); 
+require('dotenv').config();
+
+// Security: Require session secret from environment
+if (!process.env.SECRETKEY) {
+  console.error('FATAL: SECRETKEY environment variable is not set. Exiting.');
+  process.exit(1);
+}
 const chatRoutes = require('./routers/chatRoutes')
 const User = require('./models/userModel');
 const app = express();
@@ -18,12 +24,14 @@ app.use(express.json());
 
 app.use(
   session({
-    secret: process.env.SECRETKEY || "DSAI",
-    resave: true,
+    secret: process.env.SECRETKEY,
+    resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 1000 * 60 * 60 * 24,
-      secure: false,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
     },
   })
 );
@@ -35,11 +43,12 @@ app.use(passport.session());
 
 app.use(
   cors({
-    origin:process.env.CLIENT_URL || "http://localhost:3000",
-    methods:"GET,POST,PUT,DELETE",
-    credentials:true,
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    optionsSuccessStatus: 200,
   })
-)
+);
 
 app.use("/auth",authRoutes);
 
@@ -53,16 +62,18 @@ app.use('/user', userRoutes);
 app.use('/project', projectRoutes);
 app.use('/chat',chatRoutes);
 
-app.get('/search',async (req,res)=>{
+app.get('/search', async (req, res) => {
+    if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: 'Not Authorized' });
+    }
     try {
-        const users = await User.find({}, "_id name email");
-        console.log("Users found:", users);
+        const users = await User.find({}, "_id name");
         res.json(users);
     } catch (error) {
         console.error("Error fetching users:", error);
-        res.status(500).json({ error: "Failed to fetch users", details: error.message });
+        res.status(500).json({ error: "Failed to fetch users" });
     }
-})
+});
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('Connected to MongoDB'))
