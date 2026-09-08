@@ -25,14 +25,19 @@ exports.addProject = async (req, res) => {
 
 exports.editProject = async (req, res) => {
     try {
+        if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+
         const { pid } = req.params;
+        const body = req.body || {};
 
         // Whitelist allowed update fields to prevent mass assignment
         const allowedFields = ['name', 'description', 'visibility'];
         const updates = {};
         for (const field of allowedFields) {
-            if (req.body[field] !== undefined) {
-                updates[field] = req.body[field];
+            if (body[field] !== undefined) {
+                updates[field] = body[field];
             }
         }
 
@@ -40,9 +45,18 @@ exports.editProject = async (req, res) => {
             return res.status(400).json({ error: 'No valid fields to update' });
         }
 
-        const project = await Project.findByIdAndUpdate(pid, updates, { new: true });
+        const userId = req.user._id || req.user.id;
+        const project = await Project.findOneAndUpdate(
+            { _id: pid, $or: [{ owner: userId }, { users: userId }] },
+            updates,
+            { new: true, runValidators: true }
+        );
 
         if (!project) {
+            const projectExists = await Project.exists({ _id: pid });
+            if (projectExists) {
+                return res.status(403).json({ error: 'Forbidden: Not authorized to edit this project' });
+            }
             return res.status(404).json({ error: 'Project not found' });
         }
 

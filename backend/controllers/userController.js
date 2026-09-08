@@ -2,13 +2,9 @@ const User = require('../models/userModel');
 const Project = require('../models/projectModel');
 
 exports.getMyData = async (req, res) => {
-    console.log("Authenticated:", req.isAuthenticated());
-    console.log("User object:", req.user);
-  
-    if (req.isAuthenticated()) {
+    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
       try {
-       
-        const userId = req.user.id;
+        const userId = req.user._id || req.user.id;
         const user = await User.findById(userId).select('-password').populate('projects', 'name visibility');
         
         if (!user) return res.status(404).json({ message: 'User not found' });
@@ -24,8 +20,24 @@ exports.getMyData = async (req, res) => {
 
 exports.updateMyData = async (req, res) => {
     try {
-        const userId = req.user.id; 
-        const updates = req.body;
+        if (!req.user) {
+            return res.status(401).json({ message: 'Not authenticated' });
+        }
+        const userId = req.user._id || req.user.id;
+        const body = req.body || {};
+
+        // Whitelist allowed profile update fields to prevent mass assignment
+        const allowedFields = ['name', 'imageURL'];
+        const updates = {};
+        for (const field of allowedFields) {
+            if (body[field] !== undefined) {
+                updates[field] = body[field];
+            }
+        }
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
 
         const user = await User.findByIdAndUpdate(userId, updates, { new: true, runValidators: true });
 
@@ -39,8 +51,10 @@ exports.updateMyData = async (req, res) => {
 
 exports.getMyProjects = async (req, res) => {
     try {
-        
-        const userId = req.user._id;
+        if (!req.user) {
+            return res.status(401).json({ message: 'Not authenticated' });
+        }
+        const userId = req.user._id || req.user.id;
        
         const projects = await Project.find({
             $or: [

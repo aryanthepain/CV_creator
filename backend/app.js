@@ -11,14 +11,25 @@ const authRoutes = require('./routers/auth');
 const session = require('express-session');
 require('dotenv').config();
 
-// Security: Require session secret from environment
-if (!process.env.SECRETKEY) {
-  console.error('FATAL: SECRETKEY environment variable is not set. Exiting.');
+// Security: Require session secret from environment (reject placeholders and weak secrets)
+const PLACEHOLDER_SECRETS = [
+  'your_session_secret_here',
+  'replace_with_at_least_32_chars_random_hex_secret',
+  'DSAI',
+];
+const secret = process.env.SECRETKEY || '';
+const hasLowEntropy = new Set(secret).size < 8;
+if (!secret || PLACEHOLDER_SECRETS.includes(secret) || secret.length < 32 || hasLowEntropy) {
+  console.error('FATAL: SECRETKEY environment variable must be set to a cryptographically secure string (at least 32 characters with sufficient entropy) and cannot be a placeholder value. Exiting.');
   process.exit(1);
 }
 const chatRoutes = require('./routers/chatRoutes')
 const User = require('./models/userModel');
 const app = express();
+
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 
 app.use(express.json());
 
@@ -67,7 +78,17 @@ app.get('/search', async (req, res) => {
         return res.status(401).json({ error: 'Not Authorized' });
     }
     try {
-        const users = await User.find({}, "_id name");
+        const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 50) : '';
+        if (!query) {
+            return res.json([]);
+        }
+        // Escape regex special characters to prevent ReDoS
+        const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+        const users = await User.find(
+            { name: { $regex: safeQuery, $options: 'i' } },
+            "_id name"
+        ).limit(limit);
         res.json(users);
     } catch (error) {
         console.error("Error fetching users:", error);
