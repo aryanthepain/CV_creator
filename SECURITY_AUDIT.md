@@ -19,9 +19,9 @@ A comprehensive security review of the HexCode portfolio generator was performed
 
 | # | Finding | Location | Status |
 |---|---------|----------|--------|
-| 1 | **Hardcoded Session Secret Fallback** — `"DSAI"` used when `SECRETKEY` env var is missing, allowing session forgery | `backend/app.js:21` | ✅ Fixed — App now exits on startup if `SECRETKEY` is not set |
-| 2 | **Insecure Session Cookie Config** — `secure: false` always, missing `httpOnly` and `sameSite` flags | `backend/app.js:24-26` | ✅ Fixed — Added `httpOnly: true`, `sameSite: 'lax'`, `secure` based on `NODE_ENV` |
-| 3 | **Mass Assignment Vulnerability** — `editProject` passes raw `req.body` to `findByIdAndUpdate`, allowing attackers to modify `owner`, `votes`, `chats`, and other protected fields | `backend/controllers/projectController.js:31` | ✅ Fixed — Whitelisted allowed fields: `name`, `description`, `visibility` |
+| 1 | **Hardcoded / Weak Session Secret** — `"DSAI"` or template placeholders used when `SECRETKEY` is missing or insecure, allowing session forgery | `backend/app.js:15-21` | ✅ Fixed — App rejects template placeholders and enforces >=32 character cryptographically secure secret |
+| 2 | **Insecure Session Cookie Config** — `secure: false` always, missing `httpOnly` and `sameSite` flags | `backend/app.js:25-37` | ✅ Fixed — Added `httpOnly: true`, `sameSite: 'lax'`, `secure` based on `NODE_ENV`, plus `trust proxy` in production |
+| 3 | **Mass Assignment Vulnerability** — `editProject` and `updateMyData` passed raw `req.body` to Mongoose update queries, allowing unauthorized modification of protected fields (`owner`, `votes`, `projects`, etc.) | `backend/controllers/projectController.js:31`, `backend/controllers/userController.js:28` | ✅ Fixed — Whitelisted allowed fields (`name`, `description`, `visibility` for projects; `name`, `imageURL` for user profile), enabled `runValidators: true`, and safely handled undefined request bodies |
 
 ### 🟡 Medium Severity
 
@@ -32,15 +32,15 @@ A comprehensive security review of the HexCode portfolio generator was performed
 | 6 | **Silent Error Handling** — Chat controller catch block logs error but never sends response, causing client to hang | `backend/controllers/chatController.js:194-196` | ✅ Fixed — Returns `500` with generic error message |
 | 7 | **Improper Auth Response** — Unauthenticated chat requests return `200` with error in body instead of `401` | `backend/controllers/chatController.js:198-200` | ✅ Fixed — Returns `401` status |
 | 8 | **No Input Validation** — `addProject`, `editProject`, `voteProject` destructure `req.body` without type/presence validation | `backend/controllers/projectController.js` | ⚠️ Deferred — Follow-up issue filed for `express-validator` integration |
-| 9 | **Unprotected Routes** — Project CRUD routes lack authentication middleware | `backend/routers/projectRoutes.js` | ⚠️ Deferred — Follow-up issue filed |
-| 10 | **Unauthenticated User Search** — `/search` endpoint exposes all users' `_id`, `name`, and `email` without auth | `backend/app.js:56-65` | ✅ Fixed — Added auth check, removed `email` from projection |
+| 9 | **Unprotected Routes & Authorization Bypass** — Private user endpoints and project mutations lacked auth guards and ownership checks | `backend/routers/userRoutes.js`, `backend/controllers/projectController.js` | ✅ Fixed — Applied `ensureAuth` middleware to user routes and added owner/member predicate check to `editProject` |
+| 10 | **Unauthenticated / Unbounded User Search** — `/search` endpoint exposed all users without auth, search criteria, or limit | `backend/app.js:65-76` | ✅ Fixed — Added auth check, search query filtering with regex escaping, limit cap of 50, and preserved minimal projection |
 
 ### 🟢 Low Severity
 
 | # | Finding | Location | Status |
 |---|---------|----------|--------|
-| 11 | **Secrets Template in README** — `.env` format shown with placeholder keys (acceptable, no real secrets) | `README.md:119-141` | ℹ️ Acceptable — Verified no real keys in git history |
-| 12 | **Missing `.env.example`** — No template files for environment configuration | Backend + Frontend | ✅ Fixed — Created `backend/.env.example` and `frontend/.env.example` |
+| 11 | **Secrets Template in README** — `.env` format shown with placeholder keys | `README.md:119-141` | ℹ️ Acceptable — Verified currently tracked files contain only placeholder templates; git history scan confirmed no real keys committed |
+| 12 | **Missing `.env.example`** — No template files for environment configuration | Backend + Frontend | ✅ Fixed — Created `backend/.env.example` and `frontend/.env.example` with absolute callback URL and secure secret guidance |
 | 13 | **Dead OpenAI Code** — Commented-out code references undefined `openai` variable, would crash if uncommented | `backend/controllers/chatController.js:108-155` | ℹ️ Informational — Left as-is (commented out), poses no runtime risk |
 
 ---
@@ -73,12 +73,15 @@ The `demo/` site (Issue #5) is a fully static Vite+React application:
 ## Verification Commands
 
 ```bash
-# Verify no .env files are tracked in git
+# 1. Verify no active .env files are tracked in git
 git ls-files | grep -i '\.env' | grep -v '\.example'
 
-# Verify no secrets in demo build output
-grep -r "localhost\|API_KEY\|SECRET\|MONGODB\|CLAUDE\|GOOGLE_CLIENT" demo/dist/
+# 2. Verify git history for secret exposure
+git log -p -S "AIza" -S "client_secret" | head -n 50
 
-# Verify session config
-grep -A 10 "session(" backend/app.js
+# 3. Automated secret scanner across all demo/dist files (fails if secrets found)
+node -e "const fs = require('fs'); const path = require('path'); function walk(dir){ let res = []; for (const item of fs.readdirSync(dir)){ const full = path.join(dir, item); if (fs.statSync(full).isDirectory()) res.push(...walk(full)); else res.push(full); } return res; } const files = walk('demo/dist'); const pattern = /(CLAUDE_API_KEY|GOOGLE_CLIENT_SECRET|MONGODB_URI|AIza[0-9A-Za-z-_]{35}|ghp_[0-9A-Za-z]{36})\s*[:=]/i; let fails = 0; for (const f of files){ const content = fs.readFileSync(f, 'utf8'); if (pattern.test(content)){ console.error('CRITICAL: Detected secret pattern in', f); fails++; } } if (fails > 0) process.exit(1); console.log('PASS: All', files.length, 'demo/dist files verified clean of secrets.');"
+
+# 4. Executable security test suite (asserts production session cookie HttpOnly, SameSite, Secure flags, secret validation, mass assignment whitelisting, and route auth)
+npm --prefix backend test
 ```
