@@ -134,7 +134,7 @@ exports.chat = async (req,res)=> {
         return html;
     };
 
-    obj = JSON.parse(message.content[0].text)
+    const obj = JSON.parse(message.content[0].text)
 
     // if(frontendRoute === `/main/react/${projectId}`){
     //     for(let key in obj.files){
@@ -193,10 +193,11 @@ const finalOutput = `${formattedTime} ${formattedDate}`;
       res.json(message)
     } catch (error) {
       console.error('Error:', error);
+      res.status(500).json({ error: 'An error occurred while processing your request' });
     }
 
-  } else{
-    res.json({'error':"Not Authorized"})
+  } else {
+    res.status(401).json({ error: 'Not Authorized' });
   }
 }
 

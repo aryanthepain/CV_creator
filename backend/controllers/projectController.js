@@ -26,7 +26,19 @@ exports.addProject = async (req, res) => {
 exports.editProject = async (req, res) => {
     try {
         const { pid } = req.params;
-        const updates = req.body;
+
+        // Whitelist allowed update fields to prevent mass assignment
+        const allowedFields = ['name', 'description', 'visibility'];
+        const updates = {};
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                updates[field] = req.body[field];
+            }
+        }
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ error: 'No valid fields to update' });
+        }
 
         const project = await Project.findByIdAndUpdate(pid, updates, { new: true });
 
